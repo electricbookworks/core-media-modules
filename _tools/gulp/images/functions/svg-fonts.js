@@ -1,58 +1,75 @@
 // This function makes fonts display correctly, by doing three things:
 // - adding a style element that imports Google fonts (skipped for epub,
 //   where remote resources are not allowed by EPUBCheck)
-// - replacing 'Asap-Medium' with 'Asap', font-weight 600
+// - replacing 'Asap-Medium' with 'Asap', font-weight 500
 // - replacing 'Asap-Regular' with 'Asap'
 
-function svgFonts(xml, outputFormat) {
+function svgFonts (xml, outputFormat) {
+  // The @import is a remote resource, which is invalid in epub.
+  if (outputFormat !== 'epub') {
+    const defs = xml.svg.defs || {}
+    const style = '@import url("https://fonts.googleapis.com/css?family=Asap:400,400i,500,500i,600,600i");'
+    if (!defs.style) {
+      defs.style = style
+    } else if (!defs.style.includes(style)) {
+      if (Array.isArray(defs.style)) {
+        defs.style.push(style)
+      } else {
+        defs.style = [defs.style, style]
+      }
+    }
+    xml.svg.defs = defs
+  }
 
-    // The @import is a remote resource, which is invalid in epub.
-    if (outputFormat !== 'epub') {
-        xml.svg.defs = {
-            style: '@import url("https://fonts.googleapis.com/css?family=Asap:400,400i,600,600i");'
-        };
+  // Initialise a list of text elements
+  const svgTextElements = []
+
+  // Add text elements in g elements recursively
+  // and also add text elements directly in the SVG.
+  function addGText (element) {
+    const gElements = element.g
+    if (!gElements) {
+      return
     }
 
-    // Initialise a list of text elements
-    var svgTextElements = [];
+    gElements.forEach(function (g) {
+      const gTextElements = g.text
+      if (gTextElements) {
+        gTextElements.forEach(function (gTextElement) {
+          svgTextElements.push(gTextElement)
+        })
+      }
 
-    // Add text elements in g elements`recursively
-    // to the svgTextElements array.
-    function addGText(element) {
-        var gElements = element.g;
+      // If g contains another g, recur
+      if (g.g) {
+        addGText(g)
+      }
+    })
+  }
 
-        gElements.forEach(function (g) {
-            var gTextElements = g.text;
-            if (gTextElements) {
-                gTextElements.forEach(function (gTextElement) {
-                    svgTextElements.push(gTextElement);
-                });
-            }
+  addGText(xml.svg)
 
-            // If g contains another g, recur
-            if (g.g) {
-                addGText(g);
-            }
-        });
+  // Also add text elements directly in the svg element
+  if (xml.svg.text) {
+    xml.svg.text.forEach(function (textElement) {
+      svgTextElements.push(textElement)
+    })
+  }
+
+  svgTextElements.forEach(function (element) {
+    if (!element.$ || !element.$.style) {
+      return
     }
-    addGText(xml.svg);
+    let styleString = element.$.style
+    // Replace Asap font variant names with 'Asap'. SVGO minifies fonts like:
+    // font-family:Asap-Regular,Asap or font-family:'Asap-Medium',sans-serif
+    // Match the font name and any following comma and spaces, but stop at the next property.
+    styleString = styleString.replace(/font-family:\s*['"]?Asap-Regular['"]?\s*,?\s*Asap\b/g, "font-family:'Asap'")
+    styleString = styleString.replace(/font-family:\s*['"]?Asap-Medium['"]?\s*,?\s*Asap\b/g, "font-family:'Asap';font-weight:500")
+    element.$.style = styleString
+  })
 
-    var fontReplacements = {
-        "font-family:'Asap-Regular';": "font-family:'Asap';",
-        "font-family:'Asap-Medium';": "font-family:'Asap';font-weight:600;"
-    }
-
-    svgTextElements.forEach(function (element) {
-        var styleString = element.$.style;
-        for (var string in fontReplacements) {
-            if (styleString.includes(string)) {
-                styleString = styleString.replace(string, fontReplacements[string]);
-                element.$.style = styleString;
-            }
-        }
-    });
-
-    return xml;
+  return xml
 }
 
-exports.svgFonts = svgFonts;
+exports.svgFonts = svgFonts
